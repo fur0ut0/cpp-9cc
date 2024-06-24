@@ -3,12 +3,12 @@ set -eu
 
 test_return_code() {
    program="$1"
-   exptected="$2"
+   expected="$2"
    input="$3"
 
-   "$program" "$input" > tmp.s
+   ./"$program" "$input" > tmp.s
    cc -o tmp tmp.s
-   ./tmp
+   ./tmp && true
    actual="$?"
 
    if [ "$actual" = "$expected" ]; then
@@ -19,7 +19,7 @@ test_return_code() {
    fi
 }
 
-test_return_code "$1" 0 0
-test_return_code "$1" 42 42
+test_return_code 9cc 0 0
+test_return_code 9cc 42 42
 
 echo "OK"
