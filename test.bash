@@ -22,5 +22,6 @@ test_return_code() {
 test_return_code 9cc 0 0
 test_return_code 9cc 42 42
 test_return_code 9cc 21 "5+20-4"
+test_return_code 9cc 41 " 12 + 34 - 5 "
 
 echo "OK"
