@@ -30,15 +30,16 @@ auto operator<<(std::ostream &os, TokenKind kind) -> std::ostream & {
    std::stringstream ss;
    using enum TokenKind;
    switch (kind) {
-   case Reserved:
-      ss << "Reserved";
-      break;
-   case Number:
-      ss << "Number";
-      break;
-   case EndOfFile:
-      ss << "EndOfFile";
-      break;
+#define ENTRY_CASE(name)                                                       \
+   case name: {                                                                \
+      ss << #name;                                                             \
+   } break
+
+      ENTRY_CASE(Reserved);
+      ENTRY_CASE(Number);
+      ENTRY_CASE(EndOfFile);
+
+#undef ENTRY_CASE
    }
    return os << ss.str();
 }
