@@ -79,6 +79,12 @@ void debug_nodes(std::ostream &os, const std::unique_ptr<Node> &root,
 
 } // namespace parser
 
+namespace generator {
+
+void gen(std::ostream &os, const std::unique_ptr<Node> &root);
+
+}
+
 int main(int argc, char const *argv[]) {
    if (argc != 2) {
       std::cerr << "the number of arguments must be 2, but got " << argc
@@ -350,3 +356,46 @@ void debug_nodes(std::ostream &os, const std::unique_ptr<Node> &root,
 }
 
 } // namespace parser
+
+namespace generator {
+
+void gen(std::ostream &os, const std::unique_ptr<Node> &root) {
+   if (root->kind == NodeKind::Number) {
+      std::stringstream ss;
+      ss << "  push " << root->val << "\n";
+      os << ss.str();
+      return;
+   }
+
+   gen(os, root->lhs);
+   gen(os, root->rhs);
+
+   std::stringstream ss;
+   ss << "  pop rdi" << "\n";
+   ss << "  pop rax" << "\n";
+   using enum NodeKind;
+   switch (root->kind) {
+   case Add:
+      ss << "  add rax, rdi" << "\n";
+      break;
+   case Subtract:
+      ss << "  sub rax, rdi" << "\n";
+      break;
+   case Multiply:
+      ss << "  imul rax, rdi" << "\n";
+      break;
+   case Divide:
+      ss << "  cqo" << "\n";
+      ss << "  idiv rdi" << "\n";
+      break;
+   default:
+      // TODO: handle error
+      break;
+   }
+
+   ss << "  push rax" << "\n";
+
+   os << ss.str();
+}
+
+} // namespace generator
