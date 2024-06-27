@@ -23,5 +23,8 @@ test_return_code 9cc 0 0
 test_return_code 9cc 42 42
 test_return_code 9cc 21 "5+20-4"
 test_return_code 9cc 41 " 12 + 34 - 5 "
+test_return_code 9cc 47 "5 + 6 * 7"
+test_return_code 9cc 15 "5 * (9 - 6)"
+test_return_code 9cc 4 "(3 + 5) / 2"
 
 echo "OK"

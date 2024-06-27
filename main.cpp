@@ -93,36 +93,25 @@ int main(int argc, char const *argv[]) {
 
    expr_buffer = argv[1];
    const auto tokens = tokenizer::tokenize(expr_buffer);
-   auto token = tokens.cbegin();
-
-   // TODO: enable parser
-   // auto root = parser::expr(token);
-   // parser::debug_nodes(std::cerr, root);
-   // token = tokens.cbegin();
 
    // DEBUG: debug print tokenized units
    // tokenizer::debug_tokens(std::cerr, tokens);
 
+   auto token = tokens.cbegin();
+   const auto root = parser::expr(token);
+
+   // DEBUG: debug print parsed units
+   // parser::debug_nodes(std::cerr, root);
+
+   // prologue
    std::cout << ".intel_syntax noprefix" << "\n";
    std::cout << ".globl main" << "\n";
    std::cout << "main:" << "\n";
 
-   std::cout << "  mov rax, " << parser::expect_number(token) << "\n";
-   while (!parser::is_eof(token)) {
-      if (parser::consume(token, "+")) {
-         std::cout << "  add rax, " << parser::expect_number(token) << "\n";
-         continue;
-      }
+   generator::gen(std::cout, root);
 
-      if (parser::consume(token, "-")) {
-         std::cout << "  sub rax, " << parser::expect_number(token) << "\n";
-         continue;
-      }
-
-      std::cerr << "Unreachable sentence (this is a bug)" << std::endl;
-      print_error_location_and_exit(std::cerr, token->str);
-   }
-
+   // use stack top as result
+   std::cout << "  pop rax" << "\n";
    std::cout << "  ret" << "\n";
    std::cout << std::flush;
 
@@ -207,7 +196,8 @@ auto tokenize(std::string_view expr) -> std::list<Token> {
 
       {
          const auto [head, tail] = split(remain, 1);
-         if (head == "+" || head == "-") {
+         if (head == "+" || head == "-" || head == "*" || head == "/" ||
+             head == "(" || head == ")") {
             tokens.emplace_back(TokenKind::Reserved, head);
             remain = tail;
             continue;
@@ -274,6 +264,7 @@ auto expect_number(TokenIter &token) -> Number {
    return val;
 }
 
+[[maybe_unused]]
 auto is_eof(TokenIter &token) -> bool {
    return token->kind == TokenKind::EndOfFile;
 }
