@@ -3,17 +3,99 @@
 #include <iosfwd>
 #include <iostream>
 #include <list>
+#include <memory>
 #include <sstream>
 #include <string_view>
 
+namespace {
+
+using Number = int;
+
 // TODO: hold this other than global variable
-std::string_view expr;
+std::string_view expr_buffer;
+void print_error_location_and_exit(std::ostream &os, std::string_view current);
+
+enum class TokenKind {
+   Reserved,
+   Number,
+   EndOfFile,
+};
+[[maybe_unused]]
+auto operator<<(std::ostream &os, TokenKind kind) -> std::ostream &;
+
+struct Token {
+   TokenKind kind;
+   std::string_view str;
+   Number val;
+};
+using TokenIter = decltype(std::list<Token>{}.cbegin());
+
+} // namespace
+
+namespace tokenizer {
+
+auto tokenize(std::string_view expr) -> std::list<Token>;
+
+[[maybe_unused]]
+void debug_tokens(std::ostream &os, const std::list<Token> &tokens);
+
+} // namespace tokenizer
+
+namespace parser {
+
+auto consume(TokenIter &token, std::string_view str) -> bool;
+void expect(TokenIter &token, std::string_view str);
+auto expect_number(TokenIter &token) -> Number;
+auto is_eof(TokenIter &token) -> bool;
+
+} // namespace parser
+
+int main(int argc, char const *argv[]) {
+   if (argc != 2) {
+      std::cerr << "the number of arguments must be 2, but got " << argc
+                << ", Abort." << std::endl;
+   }
+
+   expr_buffer = argv[1];
+   const auto tokens = tokenizer::tokenize(expr_buffer);
+   auto token = tokens.cbegin();
+
+   // DEBUG: debug print tokenized units
+   // tokenizer::debug_tokens(std::cerr, tokens);
+
+   std::cout << ".intel_syntax noprefix" << "\n";
+   std::cout << ".globl main" << "\n";
+   std::cout << "main:" << "\n";
+
+   std::cout << "  mov rax, " << parser::expect_number(token) << "\n";
+   while (!parser::is_eof(token)) {
+      if (parser::consume(token, "+")) {
+         std::cout << "  add rax, " << parser::expect_number(token) << "\n";
+         continue;
+      }
+
+      if (parser::consume(token, "-")) {
+         std::cout << "  sub rax, " << parser::expect_number(token) << "\n";
+         continue;
+      }
+
+      std::cerr << "Unreachable sentence (this is a bug)" << std::endl;
+      print_error_location_and_exit(std::cerr, token->str);
+   }
+
+   std::cout << "  ret" << "\n";
+   std::cout << std::flush;
+
+   return 0;
+}
+
+namespace {
 
 void print_error_location_and_exit(std::ostream &os, std::string_view current) {
-   const auto pos = current.data() - expr.data();
-   if (0 <= pos && static_cast<std::size_t>(pos) <= expr.size()) {
+   const auto pos = current.data() - expr_buffer.data();
+   if (0 <= pos && static_cast<std::size_t>(pos) <= expr_buffer.size()) {
       std::stringstream ss;
-      ss << expr << "\n";
+      ss << expr_buffer << "\n";
       ss << std::setfill(' ') << std::setw(pos) << " ";
       ss << "^";
       os << ss.str();
@@ -21,11 +103,6 @@ void print_error_location_and_exit(std::ostream &os, std::string_view current) {
    std::exit(1);
 }
 
-enum class TokenKind {
-   Reserved,
-   Number,
-   EndOfFile,
-};
 auto operator<<(std::ostream &os, TokenKind kind) -> std::ostream & {
    std::stringstream ss;
    using enum TokenKind;
@@ -44,54 +121,9 @@ auto operator<<(std::ostream &os, TokenKind kind) -> std::ostream & {
    return os << ss.str();
 }
 
-using Number = int;
+} // namespace
 
-struct Token {
-   TokenKind kind;
-   std::string_view str;
-   Number val;
-};
-
-using TokenIter = decltype(std::list<Token>{}.cbegin());
-
-auto consume(TokenIter &token, std::string_view str) -> bool {
-   if (token->kind != TokenKind::Reserved || token->str != str) {
-      return false;
-   }
-   ++token;
-   return true;
-}
-
-void expect(TokenIter &token, std::string_view str) {
-   if (!consume(token, str)) {
-      std::cerr << "Unexpected token: expected = '" << str << "', actual = '"
-                << token->str << "'" << std::endl;
-      print_error_location_and_exit(std::cerr, token->str);
-   }
-}
-
-auto expect_number(TokenIter &token) -> Number {
-   if (token->kind != TokenKind::Number) {
-      std::cerr << "Unexpected token: expected a number, actual = '"
-                << token->str << "'" << std::endl;
-      print_error_location_and_exit(std::cerr, token->str);
-   }
-   const auto val = token->val;
-   ++token;
-   return val;
-}
-
-auto is_eof(TokenIter &token) -> bool {
-   return token->kind == TokenKind::EndOfFile;
-}
-
-void debug_tokens(std::ostream &os, const std::list<Token> &tokens) {
-   for (const auto &token : tokens) {
-      os << "  Token { kind = '" << token.kind << "', str = '" << token.str
-         << "' }\n";
-   }
-   os << std::endl;
-}
+namespace tokenizer {
 
 auto tokenize(std::string_view expr) -> std::list<Token> {
    std::list<Token> tokens;
@@ -143,41 +175,47 @@ auto tokenize(std::string_view expr) -> std::list<Token> {
    return tokens;
 }
 
-int main(int argc, char const *argv[]) {
-   if (argc != 2) {
-      std::cerr << "the number of arguments must be 2, but got " << argc
-                << ", Abort." << std::endl;
+void debug_tokens(std::ostream &os, const std::list<Token> &tokens) {
+   for (const auto &token : tokens) {
+      os << "  Token { kind = '" << token.kind << "', str = '" << token.str
+         << "' }\n";
    }
+   os << std::endl;
+}
 
-   expr = argv[1];
-   const auto tokens = tokenize(expr);
-   auto token = tokens.cbegin();
+} // namespace tokenizer
 
-   // DEBUG: debug print tokenized units
-   debug_tokens(std::cerr, tokens);
+namespace parser {
 
-   std::cout << ".intel_syntax noprefix" << "\n";
-   std::cout << ".globl main" << "\n";
-   std::cout << "main:" << "\n";
+auto consume(TokenIter &token, std::string_view str) -> bool {
+   if (token->kind != TokenKind::Reserved || token->str != str) {
+      return false;
+   }
+   ++token;
+   return true;
+}
 
-   std::cout << "  mov rax, " << expect_number(token) << "\n";
-   while (!is_eof(token)) {
-      if (consume(token, "+")) {
-         std::cout << "  add rax, " << expect_number(token) << "\n";
-         continue;
-      }
-
-      if (consume(token, "-")) {
-         std::cout << "  sub rax, " << expect_number(token) << "\n";
-         continue;
-      }
-
-      std::cerr << "Unreachable sentence (this is a bug)" << std::endl;
+void expect(TokenIter &token, std::string_view str) {
+   if (!consume(token, str)) {
+      std::cerr << "Unexpected token: expected = '" << str << "', actual = '"
+                << token->str << "'" << std::endl;
       print_error_location_and_exit(std::cerr, token->str);
    }
-
-   std::cout << "  ret" << "\n";
-   std::cout << std::flush;
-
-   return 0;
 }
+
+auto expect_number(TokenIter &token) -> Number {
+   if (token->kind != TokenKind::Number) {
+      std::cerr << "Unexpected token: expected a number, actual = '"
+                << token->str << "'" << std::endl;
+      print_error_location_and_exit(std::cerr, token->str);
+   }
+   const auto val = token->val;
+   ++token;
+   return val;
+}
+
+auto is_eof(TokenIter &token) -> bool {
+   return token->kind == TokenKind::EndOfFile;
+}
+
+} // namespace parser
