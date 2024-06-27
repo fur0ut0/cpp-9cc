@@ -30,6 +30,23 @@ struct Token {
 };
 using TokenIter = decltype(std::list<Token>{}.cbegin());
 
+enum class NodeKind {
+   Add,      // "+"
+   Subtract, // "-"
+   Multiply, // "*"
+   Divide,   // "/"
+   Number,   // integer
+};
+[[maybe_unused]]
+auto operator<<(std::ostream &os, NodeKind kind) -> std::ostream &;
+
+struct Node {
+   NodeKind kind;
+   std::unique_ptr<Node> lhs;
+   std::unique_ptr<Node> rhs;
+   Number val;
+};
+
 } // namespace
 
 namespace tokenizer {
@@ -48,6 +65,18 @@ void expect(TokenIter &token, std::string_view str);
 auto expect_number(TokenIter &token) -> Number;
 auto is_eof(TokenIter &token) -> bool;
 
+auto make_general_node(NodeKind kind, std::unique_ptr<Node> &&lhs,
+                       std::unique_ptr<Node> &&rhs);
+auto make_number_node(Number number);
+
+auto primary(TokenIter &token) -> std::unique_ptr<Node>;
+auto mul(TokenIter &token) -> std::unique_ptr<Node>;
+auto expr(TokenIter &token) -> std::unique_ptr<Node>;
+
+void debug_nodes(std::ostream &os, const std::unique_ptr<Node> &root,
+                 std::string_view prefix = " ", std::size_t indent_level = 0,
+                 bool has_following_sibling = false);
+
 } // namespace parser
 
 int main(int argc, char const *argv[]) {
@@ -59,6 +88,11 @@ int main(int argc, char const *argv[]) {
    expr_buffer = argv[1];
    const auto tokens = tokenizer::tokenize(expr_buffer);
    auto token = tokens.cbegin();
+
+   // TODO: enable parser
+   // auto root = parser::expr(token);
+   // parser::debug_nodes(std::cerr, root);
+   // token = tokens.cbegin();
 
    // DEBUG: debug print tokenized units
    // tokenizer::debug_tokens(std::cerr, tokens);
@@ -115,6 +149,26 @@ auto operator<<(std::ostream &os, TokenKind kind) -> std::ostream & {
       ENTRY_CASE(Reserved);
       ENTRY_CASE(Number);
       ENTRY_CASE(EndOfFile);
+
+#undef ENTRY_CASE
+   }
+   return os << ss.str();
+}
+
+auto operator<<(std::ostream &os, NodeKind kind) -> std::ostream & {
+   std::stringstream ss;
+   using enum NodeKind;
+   switch (kind) {
+#define ENTRY_CASE(name)                                                       \
+   case name: {                                                                \
+      ss << #name;                                                             \
+   } break
+
+      ENTRY_CASE(Add);
+      ENTRY_CASE(Subtract);
+      ENTRY_CASE(Multiply);
+      ENTRY_CASE(Divide);
+      ENTRY_CASE(Number);
 
 #undef ENTRY_CASE
    }
@@ -216,6 +270,83 @@ auto expect_number(TokenIter &token) -> Number {
 
 auto is_eof(TokenIter &token) -> bool {
    return token->kind == TokenKind::EndOfFile;
+}
+
+auto make_general_node(NodeKind kind, std::unique_ptr<Node> &&lhs,
+                       std::unique_ptr<Node> &&rhs) {
+   return std::make_unique<Node>(kind, std::move(lhs), std::move(rhs));
+}
+
+auto make_number_node(Number number) {
+   return std::make_unique<Node>(NodeKind::Number, nullptr, nullptr, number);
+}
+
+auto primary(TokenIter &token) -> std::unique_ptr<Node> {
+   if (consume(token, "(")) {
+      auto node = expr(token);
+      expect(token, ")");
+      return node;
+   }
+
+   return make_number_node(expect_number(token));
+}
+
+auto mul(TokenIter &token) -> std::unique_ptr<Node> {
+   auto node = primary(token);
+   while (true) {
+      if (consume(token, "*")) {
+         node = make_general_node(NodeKind::Multiply, std::move(node),
+                                  primary(token));
+      } else if (consume(token, "/")) {
+         node = make_general_node(NodeKind::Divide, std::move(node),
+                                  primary(token));
+      } else {
+         return node;
+      }
+   }
+}
+
+auto expr(TokenIter &token) -> std::unique_ptr<Node> {
+   auto node = mul(token);
+   while (true) {
+      if (consume(token, "+")) {
+         node = make_general_node(NodeKind::Add, std::move(node), mul(token));
+      } else if (consume(token, "-")) {
+         node =
+             make_general_node(NodeKind::Subtract, std::move(node), mul(token));
+      } else {
+         return node;
+      }
+   }
+}
+
+void debug_nodes(std::ostream &os, const std::unique_ptr<Node> &root,
+                 std::string_view prefix, std::size_t indent_level,
+                 bool has_following_sibling) {
+   {
+      std::stringstream ss;
+      ss << prefix;
+      if (indent_level > 0) {
+         for (auto i = decltype(indent_level){1}; i < indent_level; ++i) {
+            ss << " | ";
+         }
+         if (has_following_sibling) {
+            ss << " |-";
+         } else {
+            ss << " `-";
+         }
+      }
+      ss << " Node { kind = " << root->kind;
+      if (root->kind == NodeKind::Number) {
+         ss << ", val = " << root->val;
+      }
+      ss << " }\n";
+      os << ss.str();
+   }
+   if (root->kind != NodeKind::Number) {
+      debug_nodes(os, root->lhs, prefix, indent_level + 1, true);
+      debug_nodes(os, root->rhs, prefix, indent_level + 1, false);
+   }
 }
 
 } // namespace parser
