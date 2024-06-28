@@ -1,3 +1,4 @@
+#include <charconv>
 #include <cstdlib>
 #include <iomanip>
 #include <iosfwd>
@@ -6,6 +7,7 @@
 #include <memory>
 #include <sstream>
 #include <string_view>
+#include <system_error>
 
 namespace {
 
@@ -206,10 +208,15 @@ auto tokenize(std::string_view expr) -> std::list<Token> {
 
       const auto is_digit = [](char c) { return std::isdigit(c); };
       if (is_digit(first_char)) {
-         const char *next_ptr = nullptr;
-         const auto val =
-             std::strtol(remain.data(), const_cast<char **>(&next_ptr), 10);
-         const auto number_length = next_ptr - remain.data();
+         Number val;
+         const auto result =
+             std::from_chars(remain.cbegin(), remain.cend(), val);
+         if (result.ec != std::errc{}) {
+            std::cerr << "Failed to tokenizing number: "
+                      << std::make_error_code(result.ec) << std::endl;
+            print_error_location_and_exit(std::cerr, remain);
+         }
+         const auto number_length = result.ptr - remain.cbegin();
 
          const auto [head, tail] = split(remain, number_length);
          tokens.emplace_back(TokenKind::Number, head, val);
