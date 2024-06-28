@@ -71,10 +71,10 @@ auto make_general_node(NodeKind kind, std::unique_ptr<Node> &&lhs,
                        std::unique_ptr<Node> &&rhs);
 auto make_number_node(Number number);
 
-auto primary(TokenIter &token) -> std::unique_ptr<Node>;
-auto unary(TokenIter &token) -> std::unique_ptr<Node>;
-auto mul(TokenIter &token) -> std::unique_ptr<Node>;
 auto expr(TokenIter &token) -> std::unique_ptr<Node>;
+auto mul(TokenIter &token) -> std::unique_ptr<Node>;
+auto unary(TokenIter &token) -> std::unique_ptr<Node>;
+auto primary(TokenIter &token) -> std::unique_ptr<Node>;
 
 void debug_nodes(std::ostream &os, const std::unique_ptr<Node> &root,
                  std::string_view prefix = " ", std::size_t indent_level = 0,
@@ -286,25 +286,18 @@ auto make_number_node(Number number) {
    return std::make_unique<Node>(NodeKind::Number, nullptr, nullptr, number);
 }
 
-auto primary(TokenIter &token) -> std::unique_ptr<Node> {
-   if (consume(token, "(")) {
-      auto node = expr(token);
-      expect(token, ")");
-      return node;
+auto expr(TokenIter &token) -> std::unique_ptr<Node> {
+   auto node = mul(token);
+   while (true) {
+      if (consume(token, "+")) {
+         node = make_general_node(NodeKind::Add, std::move(node), mul(token));
+      } else if (consume(token, "-")) {
+         node =
+             make_general_node(NodeKind::Subtract, std::move(node), mul(token));
+      } else {
+         return node;
+      }
    }
-
-   return make_number_node(expect_number(token));
-}
-
-auto unary(TokenIter &token) -> std::unique_ptr<Node> {
-   if (consume(token, "+")) {
-      return primary(token);
-   }
-   if (consume(token, "-")) {
-      return make_general_node(NodeKind::Subtract, make_number_node(0),
-                               primary(token));
-   }
-   return primary(token);
 }
 
 auto mul(TokenIter &token) -> std::unique_ptr<Node> {
@@ -322,18 +315,24 @@ auto mul(TokenIter &token) -> std::unique_ptr<Node> {
    }
 }
 
-auto expr(TokenIter &token) -> std::unique_ptr<Node> {
-   auto node = mul(token);
-   while (true) {
-      if (consume(token, "+")) {
-         node = make_general_node(NodeKind::Add, std::move(node), mul(token));
-      } else if (consume(token, "-")) {
-         node =
-             make_general_node(NodeKind::Subtract, std::move(node), mul(token));
-      } else {
-         return node;
-      }
+auto unary(TokenIter &token) -> std::unique_ptr<Node> {
+   if (consume(token, "+")) {
+      return primary(token);
    }
+   if (consume(token, "-")) {
+      return make_general_node(NodeKind::Subtract, make_number_node(0),
+                               primary(token));
+   }
+   return primary(token);
+}
+
+auto primary(TokenIter &token) -> std::unique_ptr<Node> {
+   if (consume(token, "(")) {
+      auto node = expr(token);
+      expect(token, ")");
+      return node;
+   }
+   return make_number_node(expect_number(token));
 }
 
 void debug_nodes(std::ostream &os, const std::unique_ptr<Node> &root,
