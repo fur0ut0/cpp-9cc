@@ -72,6 +72,7 @@ auto make_general_node(NodeKind kind, std::unique_ptr<Node> &&lhs,
 auto make_number_node(Number number);
 
 auto primary(TokenIter &token) -> std::unique_ptr<Node>;
+auto unary(TokenIter &token) -> std::unique_ptr<Node>;
 auto mul(TokenIter &token) -> std::unique_ptr<Node>;
 auto expr(TokenIter &token) -> std::unique_ptr<Node>;
 
@@ -295,15 +296,26 @@ auto primary(TokenIter &token) -> std::unique_ptr<Node> {
    return make_number_node(expect_number(token));
 }
 
+auto unary(TokenIter &token) -> std::unique_ptr<Node> {
+   if (consume(token, "+")) {
+      return primary(token);
+   }
+   if (consume(token, "-")) {
+      return make_general_node(NodeKind::Subtract, make_number_node(0),
+                               primary(token));
+   }
+   return primary(token);
+}
+
 auto mul(TokenIter &token) -> std::unique_ptr<Node> {
-   auto node = primary(token);
+   auto node = unary(token);
    while (true) {
       if (consume(token, "*")) {
          node = make_general_node(NodeKind::Multiply, std::move(node),
-                                  primary(token));
+                                  unary(token));
       } else if (consume(token, "/")) {
-         node = make_general_node(NodeKind::Divide, std::move(node),
-                                  primary(token));
+         node =
+             make_general_node(NodeKind::Divide, std::move(node), unary(token));
       } else {
          return node;
       }
