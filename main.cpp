@@ -33,11 +33,15 @@ struct Token {
 using TokenIter = decltype(std::list<Token>{}.cbegin());
 
 enum class NodeKind {
-   Add,      // "+"
-   Subtract, // "-"
-   Multiply, // "*"
-   Divide,   // "/"
-   Number,   // integer
+   Add,         // "+"
+   Subtract,    // "-"
+   Multiply,    // "*"
+   Divide,      // "/"
+   Equal,       // "=="
+   NotEqual,    // "!="
+   Less,        // "<"
+   LessOrEqual, // "<="
+   Number,      // integer
 };
 [[maybe_unused]]
 auto operator<<(std::ostream &os, NodeKind kind) -> std::ostream &;
@@ -72,6 +76,9 @@ auto make_general_node(NodeKind kind, std::unique_ptr<Node> &&lhs,
 auto make_number_node(Number number);
 
 auto expr(TokenIter &token) -> std::unique_ptr<Node>;
+auto equality(TokenIter &token) -> std::unique_ptr<Node>;
+auto relational(TokenIter &token) -> std::unique_ptr<Node>;
+auto add(TokenIter &token) -> std::unique_ptr<Node>;
 auto mul(TokenIter &token) -> std::unique_ptr<Node>;
 auto unary(TokenIter &token) -> std::unique_ptr<Node>;
 auto primary(TokenIter &token) -> std::unique_ptr<Node>;
@@ -166,6 +173,10 @@ auto operator<<(std::ostream &os, NodeKind kind) -> std::ostream & {
       ENTRY_CASE(Subtract);
       ENTRY_CASE(Multiply);
       ENTRY_CASE(Divide);
+      ENTRY_CASE(Equal);
+      ENTRY_CASE(NotEqual);
+      ENTRY_CASE(Less);
+      ENTRY_CASE(LessOrEqual);
       ENTRY_CASE(Number);
 
 #undef ENTRY_CASE
@@ -197,14 +208,23 @@ auto tokenize(std::string_view expr) -> std::list<Token> {
          continue;
       }
 
-      {
-         const auto [head, tail] = split(remain, 1);
-         if (head == "+" || head == "-" || head == "*" || head == "/" ||
-             head == "(" || head == ")") {
-            tokens.emplace_back(TokenKind::Reserved, head);
-            remain = tail;
-            continue;
+      constexpr std::array<std::string_view, 12> ReservedWords{
+          "==", "!=", "<=", ">=", "<", ">", "+", "-", "*", "/", "(", ")",
+      };
+      const auto can_parse_reserved = [&]() -> std::size_t {
+         for (const auto &word : ReservedWords) {
+            if (remain.starts_with(word)) {
+               return word.size();
+            }
          }
+         return 0;
+      };
+      const auto word_size = can_parse_reserved();
+      if (word_size > 0) {
+         const auto [head, tail] = split(remain, word_size);
+         tokens.emplace_back(TokenKind::Reserved, head);
+         remain = tail;
+         continue;
       }
 
       const auto is_digit = [](char c) { return std::isdigit(c); };
@@ -283,17 +303,57 @@ auto make_general_node(NodeKind kind, std::unique_ptr<Node> &&lhs,
 }
 
 auto make_number_node(Number number) {
-   return std::make_unique<Node>(NodeKind::Number, nullptr, nullptr, number);
+   constexpr auto kind = NodeKind::Number;
+   return std::make_unique<Node>(kind, nullptr, nullptr, number);
 }
 
-auto expr(TokenIter &token) -> std::unique_ptr<Node> {
+auto expr(TokenIter &token) -> std::unique_ptr<Node> { return equality(token); }
+
+auto equality(TokenIter &token) -> std::unique_ptr<Node> {
+   auto node = relational(token);
+   while (true) {
+      if (consume(token, "==")) {
+         constexpr auto kind = NodeKind::Equal;
+         node = make_general_node(kind, std::move(node), relational(token));
+      } else if (consume(token, "!=")) {
+         constexpr auto kind = NodeKind::NotEqual;
+         node = make_general_node(kind, std::move(node), relational(token));
+      } else {
+         return node;
+      }
+   }
+}
+
+auto relational(TokenIter &token) -> std::unique_ptr<Node> {
+   auto node = add(token);
+   while (true) {
+      if (consume(token, "<=")) {
+         constexpr auto kind = NodeKind::LessOrEqual;
+         node = make_general_node(kind, std::move(node), add(token));
+      } else if (consume(token, ">=")) {
+         constexpr auto kind = NodeKind::LessOrEqual;
+         node = make_general_node(kind, add(token), std::move(node));
+      } else if (consume(token, "<")) {
+         constexpr auto kind = NodeKind::Less;
+         node = make_general_node(kind, std::move(node), add(token));
+      } else if (consume(token, ">")) {
+         constexpr auto kind = NodeKind::Less;
+         node = make_general_node(kind, add(token), std::move(node));
+      } else {
+         return node;
+      }
+   }
+}
+
+auto add(TokenIter &token) -> std::unique_ptr<Node> {
    auto node = mul(token);
    while (true) {
       if (consume(token, "+")) {
-         node = make_general_node(NodeKind::Add, std::move(node), mul(token));
+         constexpr auto kind = NodeKind::Add;
+         node = make_general_node(kind, std::move(node), mul(token));
       } else if (consume(token, "-")) {
-         node =
-             make_general_node(NodeKind::Subtract, std::move(node), mul(token));
+         constexpr auto kind = NodeKind::Subtract;
+         node = make_general_node(kind, std::move(node), mul(token));
       } else {
          return node;
       }
@@ -304,11 +364,11 @@ auto mul(TokenIter &token) -> std::unique_ptr<Node> {
    auto node = unary(token);
    while (true) {
       if (consume(token, "*")) {
-         node = make_general_node(NodeKind::Multiply, std::move(node),
-                                  unary(token));
+         constexpr auto kind = NodeKind::Multiply;
+         node = make_general_node(kind, std::move(node), unary(token));
       } else if (consume(token, "/")) {
-         node =
-             make_general_node(NodeKind::Divide, std::move(node), unary(token));
+         constexpr auto kind = NodeKind::Divide;
+         node = make_general_node(kind, std::move(node), unary(token));
       } else {
          return node;
       }
@@ -320,8 +380,8 @@ auto unary(TokenIter &token) -> std::unique_ptr<Node> {
       return primary(token);
    }
    if (consume(token, "-")) {
-      return make_general_node(NodeKind::Subtract, make_number_node(0),
-                               primary(token));
+      constexpr auto kind = NodeKind::Subtract;
+      return make_general_node(kind, make_number_node(0), primary(token));
    }
    return primary(token);
 }
@@ -396,6 +456,26 @@ void gen(std::ostream &os, const std::unique_ptr<Node> &root) {
    case Divide:
       ss << "  cqo" << "\n";
       ss << "  idiv rdi" << "\n";
+      break;
+   case Equal:
+      ss << "  cmp rax, rdi" << "\n";
+      ss << "  sete al" << "\n";
+      ss << "  movzb rax, al" << "\n";
+      break;
+   case NotEqual:
+      ss << "  cmp rax, rdi" << "\n";
+      ss << "  setne al" << "\n";
+      ss << "  movzb rax, al" << "\n";
+      break;
+   case Less:
+      ss << "  cmp rax, rdi" << "\n";
+      ss << "  setl al" << "\n";
+      ss << "  movzb rax, al" << "\n";
+      break;
+   case LessOrEqual:
+      ss << "  cmp rax, rdi" << "\n";
+      ss << "  setle al" << "\n";
+      ss << "  movzb rax, al" << "\n";
       break;
    default:
       // TODO: handle error
